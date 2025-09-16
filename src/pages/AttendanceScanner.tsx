@@ -588,224 +588,128 @@ const AttendanceScanner = () => {
             </Card>
           </div>
         ) : (
-          /* Active Scanning */
-          <div className="max-w-2xl mx-auto space-y-4">
-            {/* Camera Viewfinder */}
-            <Card className={`shadow-medium overflow-hidden transition-all duration-300 ${getBorderGlow()}`}>
-              <div className="relative aspect-[4/3] bg-camera-overlay">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover"
-                  style={{ transform: 'translateZ(0)' }} // Force hardware acceleration
-                />
+          /* Full Screen Camera View */
+          <div className="absolute inset-0 bg-black">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover"
+              style={{
+                transform: currentCameraFacing === 'user' ? 'scaleX(-1)' : 'none',
+              }}
+            />
+            
+            {/* Single Clean Overlay - Top Status */}
+            <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent">
+              <div className="flex items-center justify-between p-4 text-white">
+                <div>
+                  <div className="text-lg font-semibold">Classroom Scan</div>
+                  <div className="text-sm opacity-90">{recognizedCount}/{totalStudents} recognized</div>
+                </div>
                 
-                {/* Live Status Bar */}
-                <div className="absolute top-4 left-4 right-4">
-                  <div className="bg-background/95 backdrop-blur-sm px-4 py-2 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full animate-pulse ${
-                          recognitionStatus === 'success' ? 'bg-green-500' :
-                          recognitionStatus === 'failed' ? 'bg-red-500' :
-                          recognitionStatus === 'recognizing' ? 'bg-yellow-500' :
-                          'bg-blue-500'
-                        }`}></div>
-                        <span className="text-sm font-medium">
-                          {scanningMode === 'classroom' ? 'Classroom Scan' : 'Single Face'} - {recognizedCount}/{totalStudents} recognized
-                        </span>
-                        {detectedFaces.length > 0 && (
-                          <span className="text-xs text-muted-foreground">
-                            ({detectedFaces.length} faces detected)
-                          </span>
-                        )}
-                      </div>
-                      
-                      {/* Progress Bar */}
-                      <div className="w-20 h-1 bg-muted rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-green-500 transition-all duration-300"
-                          style={{ width: `${totalStudents > 0 ? (recognizedCount / totalStudents) * 100 : 0}%` }}
-                        ></div>
-                      </div>
+                <div className="flex items-center gap-2">
+                  {recognitionStatus === 'recognizing' && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
+                      <span className="text-sm">Scanning...</span>
                     </div>
-                  </div>
+                  )}
+                  {recognitionStatus === 'success' && (
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                      <span className="text-sm">Found student!</span>
+                    </div>
+                  )}
                 </div>
-
-                {/* Mobile Instructions */}
-                {isMobile && detectedFaces.length === 0 && (
-                  <div className="absolute top-20 left-4 right-4 pointer-events-none">
-                    <div className="bg-background/90 backdrop-blur-sm px-4 py-3 rounded-lg text-center">
-                      <div className="text-sm font-semibold mb-1">Mobile Camera Mode</div>
-                      <div className="text-xs text-muted-foreground">
-                        {scanningMode === 'classroom' ? 'Point camera at class' : 'Point camera at face'} • Tap to focus
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Classroom Scanning Instructions - Non-blocking */}
-                {!isMobile && scanningMode === 'classroom' && detectedFaces.length === 0 && (
-                  <div className="absolute top-20 left-4 right-4 pointer-events-none">
-                    <div className="bg-background/90 backdrop-blur-sm px-4 py-3 rounded-lg text-center">
-                      <div className="text-sm font-semibold mb-1">Classroom Scanning Mode</div>
-                      <div className="text-xs text-muted-foreground">
-                        Point camera at class • Multiple faces detected automatically
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* User Hint */}
-                {userHint && (
-                  <div className="absolute bottom-4 left-4 right-4">
-                    <div className="bg-background/95 backdrop-blur-sm px-4 py-2 rounded-lg">
-                      <p className="text-sm text-center text-muted-foreground">{userHint}</p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Face Detection Boxes */}
-                {detectedFaces.map((face, index) => (
-                  <div
-                    key={`${face.id}_${index}`}
-                    className="absolute"
-                    style={{
-                      left: `${face.position.x}px`,
-                      top: `${face.position.y}px`,
-                      width: `${face.position.width}px`,
-                      height: `${face.position.height}px`,
-                    }}
-                  >
-                    {/* Face Detection Box - Outline Only */}
-                    <div
-                      className={`absolute border-2 rounded-lg transition-all duration-200 ${
-                        face.isRecognized 
-                          ? 'border-green-500' 
-                          : face.name === 'Detecting...'
-                          ? 'border-blue-500'
-                          : face.name === 'Unknown'
-                          ? 'border-yellow-500'
-                          : 'border-red-500'
-                      }`}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        backgroundColor: 'transparent', // No fill, just outline
-                      }}
-                    />
-                    
-                    {/* Name and Accuracy Label */}
-                    <div className={`absolute -top-8 left-0 px-2 py-1 rounded-md text-xs font-medium whitespace-nowrap ${
-                      face.isRecognized 
-                        ? 'bg-green-500 text-white' 
-                        : face.name === 'Detecting...'
-                        ? 'bg-blue-500 text-white'
-                        : face.name === 'Unknown'
-                        ? 'bg-yellow-500 text-white'
-                        : 'bg-red-500 text-white'
-                    }`}>
-                      <div className="flex items-center gap-1">
-                        <span>{face.name}</span>
-                        {face.accuracy > 0 && (
-                          <span className="text-xs opacity-90">
-                            ({face.accuracy.toFixed(0)}%)
-                          </span>
-                        )}
-                        {face.isRecognized && <span>✅</span>}
-                      </div>
-                    </div>
-                  </div>
-                ))}
               </div>
-            </Card>
+            </div>
 
-            {/* Enhanced Stats */}
-            <Card className="bg-card/50 backdrop-blur-sm">
-              <CardContent className="p-6">
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="text-center">
-                    <div className="text-4xl font-bold text-green-600 mb-1">
-                      {recognizedCount}
-                    </div>
-                    <div className="text-sm font-medium text-muted-foreground">Recognized</div>
-                    <div className="w-full h-2 bg-muted rounded-full mt-2 overflow-hidden">
-                      <div 
-                        className="h-full bg-green-500 transition-all duration-500"
-                        style={{ width: `${totalStudents > 0 ? (recognizedCount / totalStudents) * 100 : 0}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-4xl font-bold text-gray-600 mb-1">
-                      {totalStudents}
-                    </div>
-                    <div className="text-sm font-medium text-muted-foreground">Total Students</div>
-                    <div className="w-full h-2 bg-muted rounded-full mt-2">
-                      <div className="h-full bg-gray-400 w-full"></div>
-                    </div>
-                  </div>
+            {/* Face Detection Boxes */}
+            {detectedFaces.map((face, index) => (
+              <div
+                key={index}
+                className="absolute border-2 border-green-400 rounded-lg shadow-lg"
+                style={{
+                  left: `${face.position.x}px`,
+                  top: `${face.position.y}px`,
+                  width: `${face.position.width}px`,
+                  height: `${face.position.height}px`,
+                }}
+              >
+                <div className="absolute -top-8 left-0 bg-green-400 text-black px-2 py-1 rounded text-xs font-medium">
+                  {face.name || 'Unknown'}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            ))}
 
-            {/* Debug Panel */}
-            {debugMode && (
-              <Card className="bg-muted/50">
-                <CardHeader>
-                  <CardTitle className="text-sm">Debug Console</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="bg-black text-green-400 p-3 rounded font-mono text-xs h-32 overflow-y-auto">
-                    {debugLogs.map((log, index) => (
-                      <div key={index}>{log}</div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+            {/* Error Messages */}
+            {cameraError && (
+              <div className="absolute top-20 left-4 right-4 bg-red-500/90 text-white p-3 rounded-lg">
+                <p className="text-sm text-center font-medium">{cameraError}</p>
+              </div>
             )}
 
-            {/* Controls */}
-            <div className="space-y-3">
-              <Button 
-                variant="success" 
-                size="lg" 
-                className="w-full"
-                onClick={completeScan}
-                disabled={recognizedCount === 0 && Object.values(manualAttendance).filter(s => s === 'present').length === 0}
-              >
-                <CheckCircle className="w-5 h-5 mr-2" />
-                Complete Scan ({recognizedCount} auto + {Object.values(manualAttendance).filter(s => s === 'present').length} manual)
-              </Button>
-              
-              <div className="grid grid-cols-2 gap-3">
+            {/* Helpful Hints */}
+            {userHint && !cameraError && (
+              <div className="absolute top-20 left-4 right-4 bg-blue-500/90 text-white p-3 rounded-lg">
+                <p className="text-sm text-center">{userHint}</p>
+              </div>
+            )}
+
+            {/* Bottom Controls - Floating */}
+            <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent">
+              <div className="p-4 space-y-3">
                 <Button 
-                  variant="outline" 
-                  onClick={() => setShowManualMode(true)}
-                  className="flex-1"
+                  variant="success" 
+                  size="lg" 
+                  className="w-full"
+                  onClick={completeScan}
+                  disabled={recognizedCount === 0 && Object.values(manualAttendance).filter(s => s === 'present').length === 0}
                 >
-                  <List className="w-4 h-4 mr-2" />
-                  Manual Override
+                  <CheckCircle className="w-5 h-5 mr-2" />
+                  Complete Scan ({recognizedCount} auto + {Object.values(manualAttendance).filter(s => s === 'present').length} manual)
                 </Button>
                 
-                <Button 
-                  variant="outline" 
-                  onClick={() => {
-                    stopCamera();
-                    setIsScanning(false);
-                    setRecognizedCount(0);
-                    setRecognizedIds(new Set());
-                    setRecognitionStatus('idle');
-                    setUserHint('');
-                    setDetectedFaces([]);
-                    setManualAttendance({});
-                  }}
-                  className="flex-1"
-                >
-                  Reset Scan
-                </Button>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setShowManualMode(true)}
+                    className="flex-1 bg-white/10 border-white/20 text-white hover:bg-white/20"
+                  >
+                    <List className="w-4 h-4 mr-2" />
+                    Manual Override
+                  </Button>
+                  
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      stopCamera();
+                      setIsScanning(false);
+                      setRecognizedCount(0);
+                      setRecognizedIds(new Set());
+                      setRecognitionStatus('idle');
+                      setUserHint('');
+                      setDetectedFaces([]);
+                      setManualAttendance({});
+                    }}
+                    className="flex-1 bg-white/10 border-white/20 text-white hover:bg-white/20"
+                  >
+                    Reset Scan
+                  </Button>
+                </div>
+
+                {/* Debug Panel - Compact */}
+                {debugMode && (
+                  <div className="bg-black/50 backdrop-blur-sm rounded-lg p-3">
+                    <div className="text-green-400 font-mono text-xs h-20 overflow-y-auto">
+                      {debugLogs.slice(-3).map((log, index) => (
+                        <div key={index}>{log}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
