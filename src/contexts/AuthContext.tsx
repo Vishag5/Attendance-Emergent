@@ -69,7 +69,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const mockUser = {
         id: 'demo-user-123',
         email: email,
-        user_metadata: { full_name: 'Demo Teacher' }
+        user_metadata: { full_name: 'Demo Teacher' },
+        app_metadata: {},
+        aud: 'authenticated',
+        created_at: new Date().toISOString()
       } as User;
       
       const mockSession = {
