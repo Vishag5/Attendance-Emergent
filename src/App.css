@@ -1,0 +1,25 @@
+/* App-specific styles - most styling should be in the design system (index.css) */
+
+/* Camera video elements */
+video {
+  transform: scaleX(-1); /* Mirror front-facing camera */
+}
+
+/* Ensure proper mobile camera handling */
+video[data-camera="environment"] {
+  transform: none; /* Don't mirror back camera */
+}
+
+/* Smooth transitions for camera UI */
+.camera-transition {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
