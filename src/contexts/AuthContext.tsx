@@ -63,6 +63,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signIn = async (email: string, password: string) => {
+    // Demo mode: allow any email/password for testing
+    if (email.includes('demo') || email.includes('test')) {
+      // Create a mock user for demo purposes
+      const mockUser = {
+        id: 'demo-user-123',
+        email: email,
+        user_metadata: { full_name: 'Demo Teacher' }
+      } as User;
+      
+      const mockSession = {
+        user: mockUser,
+        access_token: 'demo-token'
+      } as Session;
+      
+      setUser(mockUser);
+      setSession(mockSession);
+      return { error: null };
+    }
+    
+    // Regular authentication
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password
