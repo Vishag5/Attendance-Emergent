@@ -526,8 +526,8 @@ const AttendanceScanner = () => {
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-6">
+      {/* Main Content - Full Screen Camera */}
+      <main className="flex-1 relative overflow-hidden">
         {!isScanning ? (
           /* Pre-scan Setup */
           <div className="max-w-md mx-auto space-y-6">
