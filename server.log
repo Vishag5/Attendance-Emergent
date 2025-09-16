@@ -1,0 +1,15 @@
+Serving HTTP on 0.0.0.0 port 9000 (http://0.0.0.0:9000/) ...
+127.0.0.1 - - [16/Sep/2025 07:40:39] "HEAD / HTTP/1.1" 200 -
+127.0.0.1 - - [16/Sep/2025 07:40:53] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [16/Sep/2025 07:40:54] "GET /assets/index-CjFGCrBv.css HTTP/1.1" 200 -
+127.0.0.1 - - [16/Sep/2025 07:40:54] "GET /assets/ui-DW48STyt.js HTTP/1.1" 200 -
+127.0.0.1 - - [16/Sep/2025 07:40:54] "GET /assets/index-CEIvUZQZ.js HTTP/1.1" 200 -
+127.0.0.1 - - [16/Sep/2025 07:40:54] "GET /assets/vendor-CqO_TLtr.js HTTP/1.1" 200 -
+127.0.0.1 - - [16/Sep/2025 07:40:54] "GET /sw.js HTTP/1.1" 200 -
+127.0.0.1 - - [16/Sep/2025 07:40:54] code 404, message File not found
+127.0.0.1 - - [16/Sep/2025 07:40:54] "GET /static/js/bundle.js HTTP/1.1" 404 -
+127.0.0.1 - - [16/Sep/2025 07:40:54] code 404, message File not found
+127.0.0.1 - - [16/Sep/2025 07:40:54] "GET /static/css/main.css HTTP/1.1" 404 -
+127.0.0.1 - - [16/Sep/2025 07:40:54] "GET /manifest.json HTTP/1.1" 200 -
+127.0.0.1 - - [16/Sep/2025 07:40:56] "GET /sw.js HTTP/1.1" 304 -
+127.0.0.1 - - [16/Sep/2025 07:41:29] "GET /manifest.json HTTP/1.1" 304 -

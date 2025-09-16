@@ -1,0 +1,5 @@
+ INFO  Accepting connections at http://localhost:8000
+ HTTP  9/16/2025 8:23:40 AM 127.0.0.1 HEAD /
+ HTTP  9/16/2025 8:23:40 AM 127.0.0.1 Returned 200 in 18 ms
+
+ INFO  Gracefully shutting down. Please wait...

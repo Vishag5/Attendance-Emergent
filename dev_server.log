@@ -1,0 +1,10 @@
+yarn run v1.22.22
+$ vite --host 0.0.0.0 --port 3000
+Port 3000 is in use, trying another one...
+
+  VITE v5.4.20  ready in 570 ms
+
+  ➜  Local:   https://localhost:3001/
+  ➜  Network: https://10.211.3.216:3001/
+error Command failed with signal "SIGTERM".
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.

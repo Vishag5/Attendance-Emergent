@@ -1,0 +1,13 @@
+ncc: Version 0.38.3
+ncc: Compiling file index.js into ESM
+Error: Module parse failed: Unexpected token (1:0)
+File was processed with these loaders:
+ * ../../root/.npm/_npx/7a71fb44c9115061/node_modules/@vercel/ncc/dist/ncc/loaders/shebang-loader.js
+You may need an additional loader to handle the result of these loaders.
+> <!doctype html>
+| <html lang="en">
+|   <head>
+    at /root/.npm/_npx/7a71fb44c9115061/node_modules/@vercel/ncc/dist/ncc/index.js.cache.js:23:2001732
+    at /root/.npm/_npx/7a71fb44c9115061/node_modules/@vercel/ncc/dist/ncc/index.js.cache.js:23:389111
+    at _done (eval at create (/root/.npm/_npx/7a71fb44c9115061/node_modules/@vercel/ncc/dist/ncc/index.js.cache.js:21:81694), <anonymous>:9:1)
+    at eval (eval at create (/root/.npm/_npx/7a71fb44c9115061/node_modules/@vercel/ncc/dist/ncc/index.js.cache.js:21:81694), <anonymous>:34:22)

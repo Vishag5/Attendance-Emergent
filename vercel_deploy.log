@@ -1,0 +1,9 @@
+npm warn exec The following package was not found and will be installed: vercel@48.0.1
+npm warn deprecated path-match@1.2.4: This package is archived and no longer maintained. For support, visit https://github.com/expressjs/express/discussions
+Vercel CLI 48.0.1
+> NOTE: The Vercel CLI now collects telemetry regarding usage of the CLI.
+> This information is used to shape the CLI roadmap and prioritize features.
+> You can learn more, including how to opt-out if you'd not like to participate in this program, by visiting the following URL:
+> https://vercel.com/docs/cli/about-telemetry
+Loading scopes…
+Error: The specified token is not valid. Use `vercel login` to generate a new token.

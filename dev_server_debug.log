@@ -1,0 +1,12 @@
+yarn run v1.22.22
+$ vite --host 0.0.0.0 --port 8080
+
+  VITE v5.4.20  ready in 534 ms
+
+  ➜  Local:   http://localhost:8080/
+  ➜  Network: http://10.211.3.216:8080/
+7:36:56 AM [vite] vite.config.ts changed, restarting server...
+Re-optimizing dependencies because lockfile has changed
+7:36:57 AM [vite] server restarted.
+error Command failed with signal "SIGTERM".
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.
