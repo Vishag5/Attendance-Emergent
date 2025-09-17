@@ -177,6 +177,9 @@ const StudentEnrollment = () => {
       await enrollStudent.mutateAsync({ classId, studentId: newStudentId });
       console.log('Enrollment completed successfully');
       
+      // Wait a moment for cache invalidation to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       setEnrollmentCompleted(true);
       toast({ title: "Enrollment complete", description: `${studentName} enrolled successfully` });
       stopCamera();
