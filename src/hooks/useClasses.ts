@@ -161,8 +161,11 @@ export const useEnrollStudent = () => {
       if (error) throw error;
       return data;
     },
-    onSuccess: (data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['enrollments', variables.classId] });
+    onSuccess: async (data, variables) => {
+      // Invalidate and refetch enrollments to ensure UI updates
+      await queryClient.invalidateQueries({ queryKey: ['enrollments', variables.classId] });
+      await queryClient.refetchQueries({ queryKey: ['enrollments', variables.classId] });
+      
       toast({
         title: "Success",
         description: "Student enrolled successfully",
