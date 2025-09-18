@@ -353,14 +353,18 @@ export function float32ToBase64Simple(descriptor: Float32Array): string {
     
     return result;
   } catch (error) {
-    console.error('Error in simple base64 conversion:', error);
+    console.error('❌ CRITICAL ERROR in float32ToBase64Simple:', error);
+    console.error('❌ Error type:', typeof error);
+    console.error('❌ Error message:', error?.message);
+    console.error('❌ Error stack:', error?.stack);
     console.error('Descriptor details:', {
       type: typeof descriptor,
       constructor: descriptor?.constructor?.name,
       length: descriptor?.length,
-      buffer: descriptor?.buffer
+      buffer: descriptor?.buffer,
+      sample: descriptor ? Array.from(descriptor).slice(0, 5) : 'N/A'
     });
-    throw new Error('Failed to convert face descriptor');
+    throw error; // Throw the original error, not a generic one
   }
 }
 

@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Plus, Users, UserPlus, History, Settings, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Users, UserPlus, History, Settings, Trash2, RefreshCw } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { useClassById, useClassEnrollments, useDeleteStudent } from "@/hooks/useClasses";
 import { useToast } from "@/hooks/use-toast";
@@ -23,8 +23,8 @@ import {
 const ClassManagement = () => {
   const { classId } = useParams();
   const [activeTab, setActiveTab] = useState<"roster" | "settings">("roster");
-  const { data: classData } = useClassById(classId ?? "");
-  const { data: enrollments } = useClassEnrollments(classId ?? "");
+  const { data: classData, refetch: refetchClass, error: classError } = useClassById(classId ?? "");
+  const { data: enrollments, refetch: refetchEnrollments, isLoading: enrollmentsLoading, error: enrollmentsError } = useClassEnrollments(classId ?? "");
   const deleteStudent = useDeleteStudent();
   const { toast } = useToast();
   
@@ -44,6 +44,15 @@ const ClassManagement = () => {
       await deleteStudent.mutateAsync({ studentId, classId });
     } catch (error) {
       // Error handling is done in the hook
+    }
+  };
+
+  const handleRefresh = async () => {
+    try {
+      await Promise.all([refetchClass(), refetchEnrollments()]);
+      toast({ title: "Refreshed", description: "Data refreshed successfully" });
+    } catch (error) {
+      toast({ title: "Refresh failed", description: "Could not refresh data", variant: "destructive" });
     }
   };
 
@@ -113,23 +122,82 @@ const ClassManagement = () => {
                 </Link>
               </Button>
               
-              <Button variant="outline" className="h-12">
+              <Button variant="outline" className="h-12" onClick={handleRefresh}>
                 <History className="w-5 h-5 mr-2" />
-                View History
+                Refresh Data
               </Button>
             </div>
+
+            {/* Debug Information */}
+            {(classError || enrollmentsError) && (
+              <Card className="shadow-medium border-destructive">
+                <CardHeader>
+                  <CardTitle className="text-destructive">Debug Information</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {classError && (
+                    <div className="mb-2">
+                      <strong>Class Error:</strong> {classError.message}
+                    </div>
+                  )}
+                  {enrollmentsError && (
+                    <div className="mb-2">
+                      <strong>Enrollments Error:</strong> {enrollmentsError.message}
+                    </div>
+                  )}
+                  <div className="text-sm text-muted-foreground">
+                    <div>Class ID: {classId}</div>
+                    <div>Enrollments Count: {enrollments?.length || 0}</div>
+                    <div>Loading: {enrollmentsLoading ? 'Yes' : 'No'}</div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Active Students */}
             <Card className="shadow-medium">
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Users className="w-5 h-5" />
-                  Active Students ({activeStudents.length})
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Users className="w-5 h-5" />
+                    Active Students ({activeStudents.length})
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => refetchEnrollments()}
+                    disabled={enrollmentsLoading}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${enrollmentsLoading ? 'animate-spin' : ''}`} />
+                  </Button>
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-0">
                 <div className="max-h-96 overflow-y-auto">
-                  {activeStudents.map((student, index) => (
+                  {enrollmentsLoading ? (
+                    <div className="flex items-center justify-center p-8">
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Loading students...
+                      </div>
+                    </div>
+                  ) : activeStudents.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center p-8 text-center">
+                      <Users className="w-12 h-12 text-muted-foreground/50 mb-4" />
+                      <h3 className="text-lg font-medium text-muted-foreground mb-2">No students enrolled</h3>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Start by enrolling your first student
+                      </p>
+                      <Button variant="camera" asChild>
+                        <Link to={`/enroll/${classId}`}>
+                          <UserPlus className="w-4 h-4 mr-2" />
+                          Enroll Student
+                        </Link>
+                      </Button>
+                    </div>
+                  ) : (
+                    activeStudents.map((student, index) => (
                     <div 
                       key={student.id} 
                       className="flex items-center justify-between p-4 border-b border-border last:border-0 hover:bg-muted/30"
@@ -189,7 +257,8 @@ const ClassManagement = () => {
                         </AlertDialog>
                       </div>
                     </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>

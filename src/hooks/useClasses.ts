@@ -73,11 +73,16 @@ export const useClassEnrollments = (classId: string) => {
         `)
         .eq('class_id', classId)
         .order('enrolled_at', { ascending: false });
-      
-      if (error) throw error;
+
+      if (error) {
+        console.error('Enrollments fetch error:', error);
+        throw error;
+      }
       return data as Enrollment[];
     },
-    enabled: !!classId
+    enabled: !!classId,
+    staleTime: 30000, // Cache for 30 seconds to reduce queries
+    refetchOnWindowFocus: false // Don't refetch on window focus
   });
 };
 
@@ -120,20 +125,42 @@ export const useCreateClass = () => {
 };
 
 export const useCreateStudent = () => {
+  const queryClient = useQueryClient();
   const { toast } = useToast();
 
   return useMutation({
     mutationFn: async (studentData: { student_id: string; full_name: string; facial_id?: string }) => {
+      console.log('🔵 DATABASE: Creating student with data:', studentData);
+      console.log('🔵 DATABASE: User ID:', (await supabase.auth.getUser()).data.user?.id);
+      
       const { data, error } = await supabase
         .from('students')
         .insert(studentData)
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ DATABASE: Student creation error:', error);
+        console.error('❌ DATABASE: Error details:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        });
+        throw error;
+      }
+      console.log('✅ DATABASE: Student created successfully:', data);
       return data;
     },
+    onSuccess: (data) => {
+      console.log('Student creation success, invalidating queries...');
+      // Invalidate students-related queries to ensure UI updates
+      queryClient.invalidateQueries({ queryKey: ['students'] });
+      queryClient.invalidateQueries({ queryKey: ['enrollments'] });
+      console.log('Queries invalidated for student creation');
+    },
     onError: (error: any) => {
+      console.error('Student creation mutation error:', error);
       toast({
         title: "Error",
         description: error.message,
@@ -149,22 +176,47 @@ export const useEnrollStudent = () => {
 
   return useMutation({
     mutationFn: async ({ classId, studentId }: { classId: string; studentId: string }) => {
+      console.log('🟡 DATABASE: Enrolling student:', { classId, studentId });
+      console.log('🟡 DATABASE: User ID:', (await supabase.auth.getUser()).data.user?.id);
+      
       const { data, error } = await supabase
         .from('enrollments')
         .insert({
           class_id: classId,
           student_id: studentId
         })
-        .select()
+        .select(`
+          *,
+          students (*)
+        `)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ DATABASE: Enrollment error:', error);
+        console.error('❌ DATABASE: Error details:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        });
+        throw error;
+      }
+      console.log('✅ DATABASE: Enrollment successful:', data);
       return data;
     },
     onSuccess: async (data, variables) => {
+      console.log('🎉 ENROLLMENT SUCCESS:', data);
+      console.log('🎉 Enrollment success, invalidating queries...');
+      console.log('🎉 Class ID:', variables.classId);
+      
       // Invalidate and refetch enrollments to ensure UI updates
       await queryClient.invalidateQueries({ queryKey: ['enrollments', variables.classId] });
       await queryClient.refetchQueries({ queryKey: ['enrollments', variables.classId] });
+      
+      // Also invalidate students queries
+      await queryClient.invalidateQueries({ queryKey: ['students'] });
+      
+      console.log('🎉 All queries invalidated and refetched');
       
       toast({
         title: "Success",
@@ -172,6 +224,7 @@ export const useEnrollStudent = () => {
       });
     },
     onError: (error: any) => {
+      console.error('Enrollment mutation error:', error);
       toast({
         title: "Error",
         description: error.message,
