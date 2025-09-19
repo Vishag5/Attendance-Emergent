@@ -28,11 +28,8 @@ const AttendanceScanner = () => {
   const [recognizedIds, setRecognizedIds] = useState<Set<string>>(new Set());
   const [lastRecognition, setLastRecognition] = useState<Date | null>(null);
   const [recognitionStatus, setRecognitionStatus] = useState<'idle' | 'recognizing' | 'success' | 'failed'>('idle');
-  const [debugMode, setDebugMode] = useState(false);
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [detectedFaces, setDetectedFaces] = useState<FaceDetection[]>([]);
   const [userHint, setUserHint] = useState<string>('');
-  const [scanningMode, setScanningMode] = useState<'single' | 'classroom'>('classroom');
   const [isMobile, setIsMobile] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   
@@ -41,12 +38,8 @@ const AttendanceScanner = () => {
   const [manualAttendance, setManualAttendance] = useState<Record<string, 'present' | 'absent' | 'unset'>>({});
   const [cameraFallbackMode, setCameraFallbackMode] = useState(false);
   const [currentCameraFacing, setCurrentCameraFacing] = useState<'user' | 'environment'>('environment');
+  const [isCompleting, setIsCompleting] = useState(false);
 
-  const addDebugLog = (message: string) => {
-    if (debugMode) {
-      setDebugLogs(prev => [...prev.slice(-9), `${new Date().toLocaleTimeString()}: ${message}`]);
-    }
-  };
 
   const getCameraErrorMessage = (error: any): string => {
     if (error.name === 'NotAllowedError') {
@@ -114,7 +107,6 @@ const AttendanceScanner = () => {
           console.log(`Trying camera config:`, config);
           stream = await navigator.mediaDevices.getUserMedia(config);
           cameraStarted = true;
-          addDebugLog(`✅ Camera started with facing: ${currentCameraFacing}`);
           break;
         } catch (error: any) {
           console.log(`Camera config failed:`, error.message);
@@ -135,17 +127,15 @@ const AttendanceScanner = () => {
         const videoTrack = stream.getVideoTracks()[0];
         if (videoTrack) {
           const settings = videoTrack.getSettings();
-          addDebugLog(`📹 Camera: ${settings.width}x${settings.height}, facing: ${settings.facingMode || 'unknown'}`);
         }
       }
       
       // Load models in background (non-blocking)
+      setUserHint('Loading face recognition models...');
       loadFaceModels().then(() => {
         setUserHint('Face recognition ready! Point camera at students.');
-        addDebugLog('🧠 Face recognition models loaded');
       }).catch((error) => {
         setUserHint('Camera ready! Basic detection active...');
-        addDebugLog(`⚠️ Model loading failed: ${error.message}`);
         setCameraFallbackMode(true);
       });
       
@@ -159,7 +149,6 @@ const AttendanceScanner = () => {
       const errorMsg = getCameraErrorMessage(error);
       setCameraError(errorMsg);
       setUserHint('Camera access failed. Try manual mode or check permissions.');
-      addDebugLog(`❌ Camera failed: ${error.message}`);
     }
   };
 
@@ -209,11 +198,19 @@ const AttendanceScanner = () => {
   const completeScan = async () => {
     if (!classId) return;
     
+    // Set completing state to show loading
+    setIsCompleting(true);
+    
     // Stop camera and cleanup
     stopCamera();
-    setIsScanning(false);
     
     const today = new Date().toISOString().slice(0,10);
+    
+    console.log('🚀 COMPLETE SCAN: Starting attendance completion...');
+    console.log('🚀 COMPLETE SCAN: Class ID:', classId);
+    console.log('🚀 COMPLETE SCAN: Total students:', totalStudents);
+    console.log('🚀 COMPLETE SCAN: Recognized IDs:', Array.from(recognizedIds));
+    console.log('🚀 COMPLETE SCAN: Manual attendance:', manualAttendance);
     
     // Combine automatic recognition with manual overrides
     const finalPresentIds = new Set<string>();
@@ -221,50 +218,132 @@ const AttendanceScanner = () => {
     
     (enrollments ?? []).forEach(enrollment => {
       const studentId = enrollment.students.id;
+      const studentName = enrollment.students.full_name;
       const manualStatus = manualAttendance[studentId];
       
-      if (manualStatus === 'present' || (manualStatus === 'unset' && recognizedIds.has(studentId))) {
+      // Determine final status: manual override takes precedence
+      if (manualStatus === 'present') {
         finalPresentIds.add(studentId);
-      } else {
+        console.log(`✅ MANUAL PRESENT: ${studentName} (${studentId})`);
+      } else if (manualStatus === 'absent') {
         finalAbsentIds.add(studentId);
+        console.log(`❌ MANUAL ABSENT: ${studentName} (${studentId})`);
+      } else if (recognizedIds.has(studentId)) {
+        // Auto-recognized as present
+        finalPresentIds.add(studentId);
+        console.log(`✅ AUTO PRESENT: ${studentName} (${studentId})`);
+      } else {
+        // Not recognized and no manual override = absent
+        finalAbsentIds.add(studentId);
+        console.log(`❌ AUTO ABSENT: ${studentName} (${studentId})`);
       }
     });
     
     const finalPresentCount = finalPresentIds.size;
     const finalAbsentCount = finalAbsentIds.size;
     
-    await supabase.from('attendance_sessions').insert({
-      class_id: classId,
-      teacher_id: (await supabase.auth.getUser()).data.user?.id,
-      date: today,
-      total_students: totalStudents,
-      present_count: finalPresentCount,
-      absent_count: finalAbsentCount
-    });
+    console.log('📊 FINAL COUNTS - Present:', finalPresentCount, 'Absent:', finalAbsentCount);
     
-    if (finalPresentIds.size > 0) {
-      await supabase.from('attendance_records').insert(
-        Array.from(finalPresentIds).map(student_id => ({ 
+    try {
+      // First, delete any existing session for today to avoid conflicts
+      console.log('🗑️ Cleaning up existing attendance session for today...');
+      const { error: deleteSessionError } = await supabase
+        .from('attendance_sessions')
+        .delete()
+        .eq('class_id', classId)
+        .eq('date', today);
+      
+      if (deleteSessionError) {
+        console.error('❌ Delete existing session error:', deleteSessionError);
+        throw deleteSessionError;
+      }
+      console.log('✅ Existing session cleaned up');
+      
+      // Insert attendance session
+      const { error: sessionError } = await supabase.from('attendance_sessions').insert({
+        class_id: classId,
+        teacher_id: (await supabase.auth.getUser()).data.user?.id,
+        date: today,
+        total_students: totalStudents,
+        present_count: finalPresentCount,
+        absent_count: finalAbsentCount
+      });
+      
+      if (sessionError) {
+        console.error('❌ Session insert error:', sessionError);
+        throw sessionError;
+      }
+      console.log('✅ Attendance session created');
+      
+      // First, delete any existing records for today to avoid conflicts
+      console.log('🗑️ Cleaning up existing attendance records for today...');
+      const { error: deleteError } = await supabase
+        .from('attendance_records')
+        .delete()
+        .eq('class_id', classId)
+        .eq('date', today);
+      
+      if (deleteError) {
+        console.error('❌ Delete existing records error:', deleteError);
+        throw deleteError;
+      }
+      console.log('✅ Existing records cleaned up');
+      
+      // Insert present records
+      if (finalPresentIds.size > 0) {
+        const presentRecords = Array.from(finalPresentIds).map(student_id => ({ 
           class_id: classId, 
           student_id, 
           date: today, 
           status: 'present' 
-        }))
-      );
-    }
-    
-    if (finalAbsentIds.size > 0) {
-      await supabase.from('attendance_records').insert(
-        Array.from(finalAbsentIds).map(student_id => ({ 
+        }));
+        
+        console.log('📝 Inserting present records:', presentRecords);
+        const { error: presentError } = await supabase.from('attendance_records').insert(presentRecords);
+        
+        if (presentError) {
+          console.error('❌ Present records insert error:', presentError);
+          throw presentError;
+        }
+        console.log('✅ Present records inserted');
+      }
+      
+      // Insert absent records
+      if (finalAbsentIds.size > 0) {
+        const absentRecords = Array.from(finalAbsentIds).map(student_id => ({ 
           class_id: classId, 
           student_id, 
           date: today, 
           status: 'absent' 
-        }))
-      );
+        }));
+        
+        console.log('📝 Inserting absent records:', absentRecords);
+        const { error: absentError } = await supabase.from('attendance_records').insert(absentRecords);
+        
+        if (absentError) {
+          console.error('❌ Absent records insert error:', absentError);
+          throw absentError;
+        }
+        console.log('✅ Absent records inserted');
+      }
+      
+      console.log('🎉 Attendance completion successful! Redirecting to results...');
+      window.location.href = `/results/${classId}`;
+      
+    } catch (error: any) {
+      console.error('❌ Attendance completion failed:', error);
+      
+      let errorMessage = 'Failed to save attendance. Please try again.';
+      
+      if (error?.code === '23505') {
+        errorMessage = 'Attendance already recorded for today. Please refresh and try again.';
+      } else if (error?.message) {
+        errorMessage = `Error: ${error.message}`;
+      }
+      
+      alert(errorMessage);
+      setIsCompleting(false);
     }
-    
-    window.location.href = `/results/${classId}`;
   };
 
   useEffect(() => {
@@ -303,7 +382,6 @@ const AttendanceScanner = () => {
         // Show detection boxes immediately, then do recognition
         const detectedFaces = await detectMultipleFaces(videoRef.current);
         
-        addDebugLog(`🔍 Detection attempt: ${detectedFaces.length} faces found`);
         
         if (detectedFaces.length > 0) {
           // First, show all detected faces as "detecting" with boxes
@@ -345,7 +423,6 @@ const AttendanceScanner = () => {
                 if (isRecognized) {
                   hasNewRecognition = true;
                   recognizedCount++;
-                  addDebugLog(`✅ Recognized: ${match.name} (accuracy: ${accuracy.toFixed(1)}%)`);
                 }
               } else {
                 recognizedFaces.push({
@@ -393,12 +470,10 @@ const AttendanceScanner = () => {
           setRecognitionStatus('idle');
           setUserHint('No faces detected. Try moving closer or adjusting lighting');
           setDetectedFaces([]);
-          addDebugLog('❌ No faces detected in this frame');
         }
       } catch (error) {
         setRecognitionStatus('failed');
         setUserHint('Detection error. Try again...');
-        addDebugLog(`❌ Detection error: ${error}`);
         setDetectedFaces([]);
         
         // Reset status after 1 second
@@ -489,15 +564,6 @@ const AttendanceScanner = () => {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setScanningMode(scanningMode === 'classroom' ? 'single' : 'classroom')}
-                className="text-primary-foreground hover:bg-primary-foreground/10"
-                title={scanningMode === 'classroom' ? 'Switch to Single Face Mode' : 'Switch to Classroom Mode'}
-              >
-                <Users className="w-4 h-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
                 onClick={switchCamera}
                 className="text-primary-foreground hover:bg-primary-foreground/10"
                 title={`Switch to ${currentCameraFacing === 'environment' ? 'Front' : 'Back'} Camera`}
@@ -507,17 +573,9 @@ const AttendanceScanner = () => {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setDebugMode(!debugMode)}
-                className="text-primary-foreground hover:bg-primary-foreground/10"
-              >
-                {debugMode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
                 onClick={() => setShowManualMode(true)}
                 className="text-primary-foreground hover:bg-primary-foreground/10"
-                title="Manual Attendance"
+                title="Manual Attendance Override"
               >
                 <List className="w-4 h-4" />
               </Button>
@@ -528,7 +586,16 @@ const AttendanceScanner = () => {
 
       {/* Main Content - Full Screen Camera */}
       <main className="flex-1 relative overflow-hidden">
-        {!isScanning ? (
+        {isCompleting ? (
+          /* Completing State */
+          <div className="min-h-screen bg-background flex items-center justify-center">
+            <div className="text-center space-y-4">
+              <div className="w-16 h-16 mx-auto border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+              <h2 className="text-xl font-semibold">Saving Attendance...</h2>
+              <p className="text-muted-foreground">Please wait while we process the results</p>
+            </div>
+          </div>
+        ) : !isScanning ? (
           /* Pre-scan Setup */
           <div className="max-w-md mx-auto space-y-6">
             <Card className="shadow-medium">
@@ -544,18 +611,21 @@ const AttendanceScanner = () => {
                     <Camera className="w-12 h-12 text-primary/60" />
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Position your camera to scan the classroom
+                    Position your camera at the center of the classroom to scan all students
                   </p>
                 </div>
                 
-                <div className="bg-muted/50 p-4 rounded-lg space-y-2">
+                <div className="bg-muted/50 p-4 rounded-lg space-y-3">
                   <div className="flex items-center justify-between text-sm">
                     <span>Total Students:</span>
                     <span className="font-semibold">{totalStudents}</span>
                   </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span>Expected Present:</span>
-                    <span className="font-semibold text-success">~{Math.floor(totalStudents * 0.85)}</span>
+                  <div className="text-xs text-muted-foreground pt-2 border-t border-border/50">
+                    <p><strong>📷 Camera Setup Tips:</strong></p>
+                    <p>• Position camera at the center of the classroom</p>
+                    <p>• Ensure good lighting on students' faces</p>
+                    <p>• Keep camera steady and at eye level</p>
+                    <p>• Students should face the camera directly</p>
                   </div>
                 </div>
 
@@ -584,6 +654,13 @@ const AttendanceScanner = () => {
                   <Camera className="w-5 h-5 mr-2" />
                   {cameraError ? 'Fix Camera Issue First' : 'Start Scanning'}
                 </Button>
+                
+                {/* Button explanations */}
+                <div className="text-xs text-muted-foreground space-y-1 pt-2">
+                  <p><strong>🔧 Available Controls (after starting):</strong></p>
+                  <p>• <strong>📷 Camera:</strong> Switch between front/back camera</p>
+                  <p>• <strong>📋 List:</strong> Manual attendance override if needed</p>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -700,16 +777,6 @@ const AttendanceScanner = () => {
                   </Button>
                 </div>
 
-                {/* Debug Panel - Compact */}
-                {debugMode && (
-                  <div className="bg-black/50 backdrop-blur-sm rounded-lg p-3">
-                    <div className="text-green-400 font-mono text-xs h-20 overflow-y-auto">
-                      {debugLogs.slice(-3).map((log, index) => (
-                        <div key={index}>{log}</div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>

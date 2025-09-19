@@ -1,5 +1,5 @@
 // FaceAttend PWA Service Worker
-const CACHE_NAME = 'faceattend-v1.0.0';
+const CACHE_NAME = 'faceattend-v2.0.0';
 const urlsToCache = [
   '/',
   '/static/js/bundle.js',

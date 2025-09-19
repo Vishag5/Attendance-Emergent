@@ -6,13 +6,17 @@ import { componentTagger } from "lovable-tagger";
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
-    host: "::",
+    host: "localhost",
     port: 8080,
     // Enable HTTPS for mobile camera access in development
     https: process.env.HTTPS === 'true' || mode === 'production' ? {
       key: undefined,
       cert: undefined,
     } : false,
+    // Fix WebSocket connection issues
+    hmr: {
+      port: 8080,
+    },
   },
   build: {
     // PWA optimizations

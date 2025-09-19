@@ -1,11 +1,11 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, CheckCircle, XCircle, Users, Clock } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Users, Clock, Loader2 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { useClassById } from "@/hooks/useClasses";
 import { supabase } from "@/integrations/supabase/client";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
 type StudentRow = { id: string; full_name: string };
 
@@ -16,36 +16,120 @@ const AttendanceResults = () => {
   const [absent, setAbsent] = useState<StudentRow[]>([]);
   const [dateStr, setDateStr] = useState<string>(new Date().toLocaleDateString());
   const [timeStr, setTimeStr] = useState<string>(new Date().toLocaleTimeString());
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
       if (!classId) return;
-      const today = new Date().toISOString().slice(0,10);
-      // present
-      const { data: presentRows } = await supabase
-        .from('attendance_records')
-        .select('student_id, students ( id, full_name )')
-        .eq('class_id', classId)
-        .eq('date', today)
-        .eq('status', 'present');
-      // absent
-      const { data: absentRows } = await supabase
-        .from('attendance_records')
-        .select('student_id, students ( id, full_name )')
-        .eq('class_id', classId)
-        .eq('date', today)
-        .eq('status', 'absent');
-      setPresent((presentRows ?? []).map(r => ({ id: (r as any).students.id, full_name: (r as any).students.full_name })));
-      setAbsent((absentRows ?? []).map(r => ({ id: (r as any).students.id, full_name: (r as any).students.full_name })));
-      const now = new Date();
-      setDateStr(now.toLocaleDateString());
-      setTimeStr(now.toLocaleTimeString());
+      
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        const today = new Date().toISOString().slice(0,10);
+        
+        console.log('🔍 Loading attendance for class:', classId, 'date:', today);
+        
+        // Get all enrolled students first
+        const { data: enrollments } = await supabase
+          .from('enrollments')
+          .select('student_id, students ( id, full_name )')
+          .eq('class_id', classId);
+        
+        console.log('📚 Enrolled students:', enrollments);
+        
+        // Get present students
+        const { data: presentRows, error: presentError } = await supabase
+          .from('attendance_records')
+          .select('student_id, students ( id, full_name )')
+          .eq('class_id', classId)
+          .eq('date', today)
+          .eq('status', 'present');
+        
+        console.log('✅ Present students:', presentRows, 'Error:', presentError);
+        
+        // Get absent students
+        const { data: absentRows, error: absentError } = await supabase
+          .from('attendance_records')
+          .select('student_id, students ( id, full_name )')
+          .eq('class_id', classId)
+          .eq('date', today)
+          .eq('status', 'absent');
+        
+        console.log('❌ Absent students:', absentRows, 'Error:', absentError);
+        
+        // Process all data before setting state to prevent intermediate renders
+        const presentStudents = (presentRows ?? []).map(r => ({ 
+          id: (r as any).students.id, 
+          full_name: (r as any).students.full_name 
+        }));
+        
+        const absentStudents = (absentRows ?? []).map(r => ({ 
+          id: (r as any).students.id, 
+          full_name: (r as any).students.full_name 
+        }));
+        
+        console.log('📊 Final counts - Present:', presentStudents.length, 'Absent:', absentStudents.length);
+        console.log('📊 Setting state - Present:', presentStudents, 'Absent:', absentStudents);
+        
+        // Use React.startTransition to batch state updates and prevent intermediate renders
+        React.startTransition(() => {
+          setPresent(presentStudents);
+          setAbsent(absentStudents);
+        });
+        
+        const now = new Date();
+        setDateStr(now.toLocaleDateString());
+        setTimeStr(now.toLocaleTimeString());
+        
+      } catch (err: any) {
+        console.error('❌ Error loading attendance:', err);
+        setError(err.message || 'Failed to load attendance data');
+      } finally {
+        // Add a delay to ensure loading state is visible and data is properly set
+        setTimeout(() => {
+          console.log('🔄 Setting isLoading to false');
+          setIsLoading(false);
+        }, 1000);
+      }
     };
     load();
   }, [classId]);
 
   const totalStudents = present.length + absent.length;
   const attendanceRate = totalStudents > 0 ? Math.round((present.length / totalStudents) * 100) : 0;
+
+  console.log('🔄 AttendanceResults render - isLoading:', isLoading, 'present:', present.length, 'absent:', absent.length);
+
+  // Loading state - show loading if still loading OR if we have no data yet
+  if (isLoading || (present.length === 0 && absent.length === 0 && !error)) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Loader2 className="w-12 h-12 animate-spin mx-auto text-primary" />
+          <h2 className="text-xl font-semibold">Loading Attendance Results...</h2>
+          <p className="text-muted-foreground">Please wait while we fetch the data</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4 max-w-md">
+          <XCircle className="w-12 h-12 mx-auto text-destructive" />
+          <h2 className="text-xl font-semibold">Error Loading Results</h2>
+          <p className="text-muted-foreground">{error}</p>
+          <Button asChild>
+            <Link to="/">Return to Dashboard</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -118,18 +202,26 @@ const AttendanceResults = () => {
             </CardHeader>
             <CardContent className="p-0">
               <div className="max-h-96 overflow-y-auto">
-                {present.map((s) => (
-                  <div 
-                    key={s.id} 
-                    className="flex items-center gap-3 p-4 border-b border-border last:border-0 hover:bg-muted/30"
-                  >
-                    <div className="w-2 h-2 bg-success rounded-full"></div>
-                    <span className="flex-1">{s.full_name}</span>
-                    <Badge variant="outline" className="text-xs text-success border-success/30">
-                      Present
-                    </Badge>
+                {present.length > 0 ? (
+                  present.map((s) => (
+                    <div 
+                      key={s.id} 
+                      className="flex items-center gap-3 p-4 border-b border-border last:border-0 hover:bg-muted/30"
+                    >
+                      <div className="w-2 h-2 bg-success rounded-full"></div>
+                      <span className="flex-1">{s.full_name}</span>
+                      <Badge variant="outline" className="text-xs text-success border-success/30">
+                        Present
+                      </Badge>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-8 text-center text-muted-foreground">
+                    <CheckCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p className="text-sm">No students marked as present</p>
+                    <p className="text-xs mt-1">Check if attendance was properly scanned</p>
                   </div>
-                ))}
+                )}
               </div>
             </CardContent>
           </Card>
@@ -144,18 +236,26 @@ const AttendanceResults = () => {
             </CardHeader>
             <CardContent className="p-0">
               <div className="max-h-96 overflow-y-auto">
-                {absent.map((s) => (
-                  <div 
-                    key={s.id} 
-                    className="flex items-center gap-3 p-4 border-b border-border last:border-0 hover:bg-muted/30"
-                  >
-                    <div className="w-2 h-2 bg-warning rounded-full"></div>
-                    <span className="flex-1">{s.full_name}</span>
-                    <Badge variant="outline" className="text-xs text-warning border-warning/30">
-                      Absent
-                    </Badge>
+                {absent.length > 0 ? (
+                  absent.map((s) => (
+                    <div 
+                      key={s.id} 
+                      className="flex items-center gap-3 p-4 border-b border-border last:border-0 hover:bg-muted/30"
+                    >
+                      <div className="w-2 h-2 bg-warning rounded-full"></div>
+                      <span className="flex-1">{s.full_name}</span>
+                      <Badge variant="outline" className="text-xs text-warning border-warning/30">
+                        Absent
+                      </Badge>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-8 text-center text-muted-foreground">
+                    <XCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p className="text-sm">No students marked as absent</p>
+                    <p className="text-xs mt-1">All enrolled students are present</p>
                   </div>
-                ))}
+                )}
               </div>
             </CardContent>
           </Card>
