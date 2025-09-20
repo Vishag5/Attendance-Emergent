@@ -136,6 +136,11 @@ export interface DetectedFace {
 	descriptor: FaceDescriptor;
 	box: { x: number; y: number; width: number; height: number };
 	score: number;
+	landmarks?: {
+		nose: { x: number; y: number };
+		leftEye: { x: number; y: number };
+		rightEye: { x: number; y: number };
+	};
 }
 
 export async function detectMultipleFaces(
@@ -143,6 +148,13 @@ export async function detectMultipleFaces(
 ): Promise<DetectedFace[]> {
 	try {
 		await loadFaceModels();
+		
+		// Test if models are actually loaded
+		console.log('🔍 Models loaded check:', {
+			tinyFaceDetector: !!faceapi.nets.tinyFaceDetector.params,
+			faceLandmark68Net: !!faceapi.nets.faceLandmark68Net.params,
+			faceRecognitionNet: !!faceapi.nets.faceRecognitionNet.params
+		});
 		
 		// Check if input is ready
 		if (!input) {
@@ -159,23 +171,50 @@ export async function detectMultipleFaces(
 			}
 		}
 		
-		// Ultra-sensitive detection parameters
-		const detectionPromise = faceapi
-			.detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ 
-				inputSize: 224, // Balanced input size
-				scoreThreshold: 0.05  // Extremely low threshold to catch any face
-			}))
-			.withFaceLandmarks()
-			.withFaceDescriptors();
+		// Ultra-fast detection parameters for speed
+		console.log('🔍 Starting face detection with input:', input);
+		console.log('🔍 Input dimensions:', {
+			width: input instanceof HTMLVideoElement ? input.videoWidth : input.width,
+			height: input instanceof HTMLVideoElement ? input.videoHeight : input.height,
+			readyState: input instanceof HTMLVideoElement ? input.readyState : 'N/A'
+		});
 		
-		// Longer timeout for classroom scanning
+		// Try basic detection first (faster, more reliable)
+		let detectionPromise;
+		try {
+			detectionPromise = faceapi
+				.detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ 
+					inputSize: 224, // Slightly larger for better detection
+					scoreThreshold: 0.1  // Higher threshold for better quality
+				}))
+				.withFaceLandmarks()
+				.withFaceDescriptors();
+		} catch (error) {
+			console.log('⚠️ Full detection failed, trying basic detection:', error);
+			// Fallback to basic detection without landmarks/descriptors
+			detectionPromise = faceapi.detectAllFaces(input, new faceapi.TinyFaceDetectorOptions({ 
+				inputSize: 224,
+				scoreThreshold: 0.1
+			}));
+		}
+		
+		// Longer timeout for better detection
 		const timeoutPromise = new Promise((_, reject) => 
-			setTimeout(() => reject(new Error('Face detection timeout')), 1000)
+			setTimeout(() => reject(new Error('Face detection timeout')), 2000)
 		);
 		
 		const detections = await Promise.race([detectionPromise, timeoutPromise]) as any[];
+		console.log('🔍 Raw detections:', detections);
+		console.log('🔍 Detection count:', detections ? detections.length : 'null/undefined');
 		
 		if (!detections || detections.length === 0) {
+			console.log('❌ No faces detected - checking input validity...');
+			console.log('❌ Input type:', typeof input);
+			console.log('❌ Input constructor:', input?.constructor?.name);
+			if (input instanceof HTMLVideoElement) {
+				console.log('❌ Video readyState:', input.readyState);
+				console.log('❌ Video dimensions:', input.videoWidth, 'x', input.videoHeight);
+			}
 			return [];
 		}
 		
@@ -183,26 +222,34 @@ export async function detectMultipleFaces(
 		const validFaces: DetectedFace[] = [];
 		
 		for (const detection of detections) {
-			if (!detection?.descriptor || !detection?.detection) {
+			// Handle both full detections (with landmarks/descriptors) and basic detections
+			const box = detection.detection ? detection.detection.box : detection.box;
+			const score = detection.detection ? detection.detection.score : detection.score;
+			
+			if (!box || !score) {
+				console.log('⚠️ Invalid detection object:', detection);
 				continue;
 			}
 			
-			const box = detection.detection.box;
-			const score = detection.detection.score;
+			// Skip if no descriptor (basic detection only)
+			if (!detection.descriptor) {
+				console.log('⚠️ No descriptor available, skipping face');
+				continue;
+			}
 			
-			// Classroom-optimized face filtering
+			// Ultra-lenient filtering for maximum speed and detection
 			const aspectRatio = box.width / box.height;
 			const area = box.width * box.height;
 			
-			// Ultra-lenient filtering for maximum detection
-			const minArea = 200; // Very small minimum for distant faces
-			const maxArea = 200000; // Very large maximum for close faces
+			// Very lenient filtering for speed
+			const minArea = 200; // Very low minimum for distant faces
+			const maxArea = 200000; // Very high maximum for close faces
 			
 			// Only filter out extremely obvious non-faces
 			if (
-				aspectRatio < 0.2 || aspectRatio > 5.0 || // Extremely wide or extremely tall
-				area < minArea || area > maxArea || // Extremely small or extremely large
-				score < 0.05 // Extremely low confidence threshold
+				aspectRatio < 0.1 || aspectRatio > 10.0 || // Very lenient aspect ratios
+				area < minArea || area > maxArea || // Very lenient size range
+				score < 0.05 // Very low confidence threshold
 			) {
 				continue;
 			}
@@ -211,6 +258,31 @@ export async function detectMultipleFaces(
 			const descriptor = detection.descriptor;
 			if (descriptor.length === 0) continue;
 			
+			// Extract landmarks for dynamic bounding box calculation
+			let landmarks;
+			if (detection.landmarks) {
+				const landmarkPoints = detection.landmarks.positions;
+				// Get nose position (typically around index 30-32 in 68-point model)
+				const noseIndex = 30; // Approximate nose tip position
+				const leftEyeIndex = 36; // Left eye center
+				const rightEyeIndex = 45; // Right eye center
+				
+				landmarks = {
+					nose: {
+						x: landmarkPoints[noseIndex]?.x || (box.x + box.width / 2),
+						y: landmarkPoints[noseIndex]?.y || (box.y + box.height * 0.4)
+					},
+					leftEye: {
+						x: landmarkPoints[leftEyeIndex]?.x || (box.x + box.width * 0.3),
+						y: landmarkPoints[leftEyeIndex]?.y || (box.y + box.height * 0.3)
+					},
+					rightEye: {
+						x: landmarkPoints[rightEyeIndex]?.x || (box.x + box.width * 0.7),
+						y: landmarkPoints[rightEyeIndex]?.y || (box.y + box.height * 0.3)
+					}
+				};
+			}
+
 			validFaces.push({
 				descriptor,
 				box: {
@@ -219,7 +291,8 @@ export async function detectMultipleFaces(
 					width: box.width,
 					height: box.height
 				},
-				score: score
+				score: score,
+				landmarks: landmarks
 			});
 		}
 		
@@ -244,11 +317,12 @@ export function findBestMatch(
 	knowns: { id: string; name: string; descriptor: Float32Array }[],
 	threshold = 0.4, // Lower threshold for better recognition
 ): { id: string; name: string; distance: number } | null {
-	console.log(`🔍 Starting face matching with ${knowns.length} enrolled students`);
-	console.log(`📏 Using threshold: ${threshold}`);
+	// Reduced logging for production performance
+	if (process.env.NODE_ENV === 'development') {
+		console.log(`🔍 Matching against ${knowns.length} students`);
+	}
 	
 	if (!knowns || knowns.length === 0) {
-		console.log('❌ No enrolled students to match against');
 		return null;
 	}
 
@@ -257,11 +331,9 @@ export function findBestMatch(
 	for (const k of knowns) {
 		try {
 			const dist = computeEuclideanDistance(query, k.descriptor);
-			console.log(`📊 Distance to ${k.name}: ${dist.toFixed(4)}`);
 			
 			if (best === null || dist < best.distance) {
 				best = { id: k.id, name: k.name, distance: dist };
-				console.log(`✅ New best match: ${k.name} with distance ${dist.toFixed(4)}`);
 			}
 		} catch (error) {
 			console.error(`❌ Error computing distance for ${k.name}:`, error);
@@ -269,12 +341,13 @@ export function findBestMatch(
 	}
 	
 	if (!best) {
-		console.log('❌ No valid matches found');
 		return null;
 	}
 	
-	console.log(`🎯 Final best match: ${best.name} with distance ${best.distance.toFixed(4)}`);
-	console.log(`📏 Threshold check: ${best.distance.toFixed(4)} <= ${threshold} ? ${best.distance <= threshold}`);
+	// Only log successful matches in development
+	if (process.env.NODE_ENV === 'development' && best.distance <= threshold) {
+		console.log(`✅ Recognized: ${best.name} (${best.distance.toFixed(4)})`);
+	}
 	
 	return best.distance <= threshold ? best : null;
 }
