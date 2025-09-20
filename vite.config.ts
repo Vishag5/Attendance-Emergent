@@ -6,8 +6,15 @@ import { componentTagger } from "lovable-tagger";
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   server: {
-    host: "localhost",
+    host: "0.0.0.0", // Allow access from any IP (mobile devices)
     port: 8080,
+    // Allow ngrok and other tunnel hosts
+    allowedHosts: [
+      'localhost',
+      '.ngrok.io',
+      '.ngrok-free.app',
+      '.ngrok.app'
+    ],
     // Enable HTTPS for mobile camera access in development
     https: process.env.HTTPS === 'true' || mode === 'production' ? {
       key: undefined,

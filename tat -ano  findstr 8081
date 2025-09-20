@@ -1,0 +1,25 @@
+[33mcommit dcf54801123b3cffdb3b50f02e211d59b76e9611[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: Vishag T <info.vishag@gmail.com>
+Date:   Fri Sep 19 16:25:52 2025 +0530
+
+    feat: Major UX improvements and cache management fixes
+    
+    - AttendanceScanner: Remove unnecessary UX elements (Expected Present, Single/Classroom mode, Debug info)
+    - AttendanceScanner: Add professional camera instructions and setup tips
+    - AttendanceScanner: Implement completing state with 'Saving Attendance...' loading screen
+    - AttendanceScanner: Fix navigation flow - direct redirect from scanning to results
+    - AttendanceResults: Add proper loading states to prevent 'Present: 0, Absent: 0' flash
+    - AttendanceResults: Implement React.startTransition for batched state updates
+    - AttendanceResults: Add error handling and loading UI with 1s delay
+    - vite.config: Fix WebSocket connection issues for development
+    - sw.js: Update cache version to v2.0.0 for cache invalidation
+    - Add Netlify _headers file for proper cache control
+    - Add in-app cache clearing mechanism for mobile users
+    
+    Fixes mobile browser caching issues and improves overall user experience
+
+public/_headers
+public/sw.js
+src/pages/AttendanceResults.tsx
+src/pages/AttendanceScanner.tsx
+vite.config.ts

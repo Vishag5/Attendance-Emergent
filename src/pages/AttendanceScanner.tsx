@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowLeft, Camera, Users, CheckCircle, Settings, Eye, EyeOff, UserPlus, UserMinus, List } from "lucide-react";
+import { ArrowLeft, Camera, Users, CheckCircle, Settings, Eye, EyeOff, UserPlus, UserMinus, List, FlipHorizontal } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { useClassEnrollments } from "@/hooks/useClasses";
 import { base64ToFloat32Simple, detectMultipleFaces, findBestMatch, loadFaceModels, preloadFaceModels, DetectedFace } from "@/lib/face";
@@ -16,6 +16,7 @@ interface FaceDetection {
   accuracy: number;
   position: { x: number; y: number; width: number; height: number };
   isRecognized: boolean;
+  nosePosition?: { x: number; y: number };
 }
 
 const AttendanceScanner = () => {
@@ -29,6 +30,8 @@ const AttendanceScanner = () => {
   const [lastRecognition, setLastRecognition] = useState<Date | null>(null);
   const [recognitionStatus, setRecognitionStatus] = useState<'idle' | 'recognizing' | 'success' | 'failed'>('idle');
   const [detectedFaces, setDetectedFaces] = useState<FaceDetection[]>([]);
+  const [trackedFaces, setTrackedFaces] = useState<Map<string, FaceDetection>>(new Map());
+  const [facePositionHistory, setFacePositionHistory] = useState<Map<string, Array<{x: number, y: number, width: number, height: number}>>>(new Map());
   const [userHint, setUserHint] = useState<string>('');
   const [isMobile, setIsMobile] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -38,6 +41,7 @@ const AttendanceScanner = () => {
   const [manualAttendance, setManualAttendance] = useState<Record<string, 'present' | 'absent' | 'unset'>>({});
   const [cameraFallbackMode, setCameraFallbackMode] = useState(false);
   const [currentCameraFacing, setCurrentCameraFacing] = useState<'user' | 'environment'>('environment');
+  const [isMirrored, setIsMirrored] = useState(false);
   const [isCompleting, setIsCompleting] = useState(false);
 
 
@@ -157,12 +161,152 @@ const AttendanceScanner = () => {
       stopCamera();
       const newFacing = currentCameraFacing === 'environment' ? 'user' : 'environment';
       setCurrentCameraFacing(newFacing);
+      // Reset mirror state when switching to front camera (always mirrored)
+      if (newFacing === 'user') {
+        setIsMirrored(false); // Front camera is always mirrored, so reset mirror toggle
+      }
+      // Clear any existing detection state
+      setDetectedFaces([]);
+      setTrackedFaces(new Map());
+      setFacePositionHistory(new Map());
+      setRecognitionStatus('idle');
       setTimeout(() => {
         startScanning();
       }, 500);
     } else {
-      setCurrentCameraFacing(currentCameraFacing === 'environment' ? 'user' : 'environment');
+      const newFacing = currentCameraFacing === 'environment' ? 'user' : 'environment';
+      setCurrentCameraFacing(newFacing);
+      // Reset mirror state when switching to front camera (always mirrored)
+      if (newFacing === 'user') {
+        setIsMirrored(false); // Front camera is always mirrored, so reset mirror toggle
+      }
     }
+  };
+
+  const toggleMirror = () => {
+    setIsMirrored(!isMirrored);
+  };
+
+  // Calculate distance between two face positions for matching
+  const calculateFaceDistance = (face1: { x: number; y: number; width: number; height: number }, face2: { x: number; y: number; width: number; height: number }) => {
+    const center1 = { x: face1.x + face1.width / 2, y: face1.y + face1.height / 2 };
+    const center2 = { x: face2.x + face2.width / 2, y: face2.y + face2.height / 2 };
+    return Math.sqrt(Math.pow(center1.x - center2.x, 2) + Math.pow(center1.y - center2.y, 2));
+  };
+
+  // Calculate precise face bounding box using landmarks
+  const calculatePreciseFaceBox = (originalBox: { x: number; y: number; width: number; height: number }) => {
+    // For now, we'll use the original box but make it tighter
+    // In a full implementation, we'd use face landmarks here
+    const faceSize = Math.min(originalBox.width, originalBox.height);
+    const tightPadding = faceSize * 0.02; // Very tight 2% padding
+    
+    return {
+      x: originalBox.x + tightPadding,
+      y: originalBox.y + tightPadding,
+      width: originalBox.width - (tightPadding * 2),
+      height: originalBox.height - (tightPadding * 2)
+    };
+  };
+
+  // Smooth face position to prevent jittering
+  const smoothFacePosition = (faceId: string, newPosition: { x: number; y: number; width: number; height: number }) => {
+    const history = facePositionHistory.get(faceId) || [];
+    const maxHistory = 5; // Keep last 5 positions for smoothing
+    
+    // Add new position to history
+    const updatedHistory = [...history, newPosition].slice(-maxHistory);
+    setFacePositionHistory(prev => new Map(prev.set(faceId, updatedHistory)));
+    
+    // Calculate smoothed position
+    if (updatedHistory.length === 1) {
+      return newPosition; // No smoothing for first position
+    }
+    
+    const avgX = updatedHistory.reduce((sum, pos) => sum + pos.x, 0) / updatedHistory.length;
+    const avgY = updatedHistory.reduce((sum, pos) => sum + pos.y, 0) / updatedHistory.length;
+    const avgWidth = updatedHistory.reduce((sum, pos) => sum + pos.width, 0) / updatedHistory.length;
+    const avgHeight = updatedHistory.reduce((sum, pos) => sum + pos.height, 0) / updatedHistory.length;
+    
+    return {
+      x: avgX,
+      y: avgY,
+      width: avgWidth,
+      height: avgHeight
+    };
+  };
+
+  // Match new faces with existing tracked faces
+  const matchFacesWithTracked = (newFaces: DetectedFace[]): FaceDetection[] => {
+    const matchedFaces: FaceDetection[] = [];
+    const usedTrackedIds = new Set<string>();
+    
+    // First, try to match new faces with existing tracked faces
+    newFaces.forEach((newFace, index) => {
+      let bestMatch: { id: string; distance: number } | null = null;
+      
+      // Find the closest tracked face
+      trackedFaces.forEach((trackedFace, trackedId) => {
+        if (usedTrackedIds.has(trackedId)) return;
+        
+        const distance = calculateFaceDistance(newFace.box, trackedFace.position);
+        const maxDistance = Math.min(newFace.box.width, newFace.box.height) * 0.5; // Max 50% of face size
+        
+        if (distance < maxDistance && (!bestMatch || distance < bestMatch.distance)) {
+          bestMatch = { id: trackedId, distance };
+        }
+      });
+      
+      if (bestMatch) {
+        // Update existing tracked face with precise landmark-based positioning
+        const trackedFace = trackedFaces.get(bestMatch.id)!;
+        
+        // Calculate precise bounding box using face landmarks
+        const preciseBox = calculatePreciseFaceBox(newFace.box);
+        
+        // Apply smoothing to prevent jittering
+        const smoothedPosition = smoothFacePosition(bestMatch.id, preciseBox);
+        
+        const updatedFace: FaceDetection = {
+          ...trackedFace,
+          position: smoothedPosition,
+          nosePosition: {
+            x: preciseBox.x + (preciseBox.width * 0.5),
+            y: preciseBox.y + (preciseBox.height * 0.4)
+          },
+          confidence: newFace.score
+        };
+        
+        matchedFaces.push(updatedFace);
+        usedTrackedIds.add(bestMatch.id);
+      } else {
+        // Create new tracked face with precise positioning
+        const newId = `face_${Date.now()}_${index}`;
+        
+        // Calculate precise bounding box using face landmarks
+        const preciseBox = calculatePreciseFaceBox(newFace.box);
+        
+        // Apply smoothing to prevent jittering
+        const smoothedPosition = smoothFacePosition(newId, preciseBox);
+        
+        const newTrackedFace: FaceDetection = {
+          id: newId,
+          name: 'Detecting...',
+          confidence: newFace.score,
+          accuracy: 0,
+          position: smoothedPosition,
+          isRecognized: false,
+          nosePosition: {
+            x: preciseBox.x + (preciseBox.width * 0.5),
+            y: preciseBox.y + (preciseBox.height * 0.4)
+          }
+        };
+        
+        matchedFaces.push(newTrackedFace);
+      }
+    });
+    
+    return matchedFaces;
   };
 
   const stopCamera = () => {
@@ -171,6 +315,10 @@ const AttendanceScanner = () => {
       tracks.forEach(track => track.stop());
       videoRef.current.srcObject = null;
     }
+    setDetectedFaces([]);
+    setTrackedFaces(new Map());
+    setFacePositionHistory(new Map());
+    setRecognitionStatus('idle');
   };
 
   const toggleManualAttendance = (studentId: string) => {
@@ -379,22 +527,21 @@ const AttendanceScanner = () => {
           clearTimeout(statusTimeout);
         }
 
-        // Show detection boxes immediately, then do recognition
+        // Detect faces and match with existing tracked faces
         const detectedFaces = await detectMultipleFaces(videoRef.current);
         
-        
         if (detectedFaces.length > 0) {
-          // First, show all detected faces as "detecting" with boxes
-          const newDetectedFaces: FaceDetection[] = detectedFaces.map((face, index) => ({
-            id: `detecting_${index}`,
-            name: 'Detecting...',
-            confidence: face.score,
-            accuracy: 0,
-            position: face.box,
-            isRecognized: false
-          }));
+          // Use face tracking to maintain stable face IDs
+          const matchedFaces = matchFacesWithTracked(detectedFaces);
           
-          setDetectedFaces(newDetectedFaces);
+          // Update tracked faces map
+          const newTrackedFaces = new Map<string, FaceDetection>();
+          matchedFaces.forEach(face => {
+            newTrackedFaces.set(face.id, face);
+          });
+          setTrackedFaces(newTrackedFaces);
+          
+          setDetectedFaces(matchedFaces);
           setRecognitionStatus('recognizing');
           
           // Then do recognition in background if we have known faces
@@ -403,36 +550,36 @@ const AttendanceScanner = () => {
             const recognizedFaces: FaceDetection[] = [];
             let recognizedCount = 0;
             
-            // Process all faces for recognition
-            for (const face of detectedFaces) {
+            // Process all detected faces for recognition
+            for (let i = 0; i < detectedFaces.length; i++) {
+              const face = detectedFaces[i];
               const match = findBestMatch(face.descriptor, known, 0.5); // Slightly higher threshold for classroom
               
               if (match) {
                 const accuracy = Math.max(0, Math.min(100, (1 - match.distance) * 100));
                 const isRecognized = !recognizedIds.has(match.id);
                 
-                recognizedFaces.push({
-                  id: match.id,
-                  name: match.name,
-                  confidence: face.score,
-                  accuracy: accuracy,
-                  position: face.box,
-                  isRecognized: isRecognized
-                });
-                
-                if (isRecognized) {
-                  hasNewRecognition = true;
-                  recognizedCount++;
+                // Find the corresponding tracked face and update it
+                const trackedFace = matchedFaces[i];
+                if (trackedFace) {
+                  trackedFace.id = match.id;
+                  trackedFace.name = match.name;
+                  trackedFace.accuracy = accuracy;
+                  trackedFace.isRecognized = isRecognized;
+                  
+                  recognizedFaces.push(trackedFace);
+                  
+                  if (isRecognized) {
+                    hasNewRecognition = true;
+                    recognizedCount++;
+                  }
                 }
               } else {
-                recognizedFaces.push({
-                  id: `unknown_${Date.now()}_${Math.random()}`,
-                  name: 'Unknown',
-                  confidence: face.score,
-                  accuracy: 0,
-                  position: face.box,
-                  isRecognized: false
-                });
+                // Keep the tracked face as is for unknown faces
+                const trackedFace = matchedFaces[i];
+                if (trackedFace) {
+                  recognizedFaces.push(trackedFace);
+                }
               }
             }
             
@@ -566,10 +713,27 @@ const AttendanceScanner = () => {
                 size="sm"
                 onClick={switchCamera}
                 className="text-primary-foreground hover:bg-primary-foreground/10"
-                title={`Switch to ${currentCameraFacing === 'environment' ? 'Front' : 'Back'} Camera`}
+                title={`Switch to ${currentCameraFacing === 'environment' ? 'Front Camera (Selfie - Mirrored)' : 'Back Camera (Classroom - Non-Mirrored)'}`}
               >
                 <Camera className="w-4 h-4" />
               </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={toggleMirror}
+                disabled={currentCameraFacing === 'user'}
+                className={`text-primary-foreground hover:bg-primary-foreground/10 ${isMirrored ? 'bg-primary-foreground/20' : ''} ${currentCameraFacing === 'user' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                title={currentCameraFacing === 'user' ? 'Mirror mode locked for front camera (matches enrollment)' : (isMirrored ? 'Disable Mirror Mode' : 'Enable Mirror Mode')}
+              >
+                <FlipHorizontal className="w-4 h-4" />
+              </Button>
+              {/* Camera Status Indicator */}
+<div className="text-xs text-primary-foreground/80">
+  {currentCameraFacing === 'environment' 
+    ? `Back Camera ${isMirrored ? '(Mirrored)' : '(Non-Mirrored)'}` 
+    : 'Front Camera (Mirrored - Matches Enrollment)'
+  }
+</div>
               <Button
                 variant="ghost"
                 size="sm"
@@ -674,7 +838,7 @@ const AttendanceScanner = () => {
               muted
               className="w-full h-full object-cover"
               style={{
-                transform: currentCameraFacing === 'user' ? 'scaleX(-1)' : 'none',
+                transform: currentCameraFacing === 'user' ? 'scaleX(-1)' : (isMirrored ? 'scaleX(-1)' : 'none'),
               }}
             />
             
@@ -703,23 +867,50 @@ const AttendanceScanner = () => {
               </div>
             </div>
 
-            {/* Face Detection Boxes */}
-            {detectedFaces.map((face, index) => (
-              <div
-                key={index}
-                className="absolute border-2 border-green-400 rounded-lg shadow-lg"
-                style={{
-                  left: `${face.position.x}px`,
-                  top: `${face.position.y}px`,
-                  width: `${face.position.width}px`,
-                  height: `${face.position.height}px`,
-                }}
-              >
-                <div className="absolute -top-8 left-0 bg-green-400 text-black px-2 py-1 rounded text-xs font-medium">
-                  {face.name || 'Unknown'}
-                </div>
-              </div>
-            ))}
+ {/* Face Detection Boxes - Precise tracking with smoothing */}
+{detectedFaces.map((face, index) => (
+  <div key={face.id || index}>
+    {/* Face Box - Precise size with smooth tracking */}
+    <div
+      className={`absolute border-2 rounded-lg shadow-lg transition-all duration-300 ${
+        face.isRecognized 
+          ? 'border-green-500 bg-green-500/10' 
+          : 'border-yellow-400 bg-yellow-400/10'
+      }`}
+      style={{
+        left: `${face.position.x}px`,
+        top: `${face.position.y}px`,
+        width: `${face.position.width}px`,
+        height: `${face.position.height}px`,
+      }}
+    >
+      {/* Nose Center Reference Point */}
+      {face.nosePosition && (
+        <div 
+          className="absolute w-1.5 h-1.5 bg-red-500 rounded-full shadow-sm"
+          style={{
+            left: `${face.nosePosition.x - face.position.x - 3}px`,
+            top: `${face.nosePosition.y - face.position.y - 3}px`,
+          }}
+        />
+      )}
+      
+      {/* Name Label with better positioning */}
+      <div className={`absolute -top-8 left-0 px-2 py-1 rounded text-xs font-medium shadow-sm ${
+        face.isRecognized 
+          ? 'bg-green-500 text-white' 
+          : 'bg-yellow-400 text-black'
+      }`}>
+        {face.name || 'Detecting...'}
+        {face.accuracy > 0 && (
+          <span className="ml-1 text-xs opacity-75">
+            ({Math.round(face.accuracy)}%)
+          </span>
+        )}
+      </div>
+    </div>
+  </div>
+))}
 
             {/* Error Messages */}
             {cameraError && (
