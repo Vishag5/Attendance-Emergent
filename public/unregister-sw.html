@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Unregistering Service Worker...</title>
+</head>
+<body>
+    <h1>Clearing Service Worker...</h1>
+    <p id="status">Please wait...</p>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                for(let registration of registrations) {
+                    registration.unregister();
+                }
+                document.getElementById('status').textContent = 'Service Worker unregistered! Redirecting...';
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 1000);
+            });
+        } else {
+            document.getElementById('status').textContent = 'No service worker support';
+        }
+    </script>
+</body>
+</html>

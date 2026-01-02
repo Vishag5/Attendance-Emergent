@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 
 export interface Class {
   id: string;
@@ -37,7 +38,7 @@ export const useClasses = () => {
         .from('classes')
         .select('*')
         .order('created_at', { ascending: false });
-      
+
       if (error) throw error;
       return data as Class[];
     }
@@ -53,7 +54,7 @@ export const useClassById = (classId: string) => {
         .select('*')
         .eq('id', classId)
         .single();
-      
+
       if (error) throw error;
       return data as Class;
     },
@@ -89,10 +90,10 @@ export const useClassEnrollments = (classId: string) => {
 export const useCreateClass = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { user } = useAuth();
 
   return useMutation({
     mutationFn: async (classData: { name: string; subject: string; period: string }) => {
-      const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
       const { data, error } = await supabase
@@ -132,7 +133,7 @@ export const useCreateStudent = () => {
     mutationFn: async (studentData: { student_id: string; full_name: string; facial_id?: string }) => {
       console.log('🔵 DATABASE: Creating student with data:', studentData);
       console.log('🔵 DATABASE: User ID:', (await supabase.auth.getUser()).data.user?.id);
-      
+
       const { data, error } = await supabase
         .from('students')
         .insert(studentData)
@@ -178,7 +179,7 @@ export const useEnrollStudent = () => {
     mutationFn: async ({ classId, studentId }: { classId: string; studentId: string }) => {
       console.log('🟡 DATABASE: Enrolling student:', { classId, studentId });
       console.log('🟡 DATABASE: User ID:', (await supabase.auth.getUser()).data.user?.id);
-      
+
       const { data, error } = await supabase
         .from('enrollments')
         .insert({
@@ -208,16 +209,16 @@ export const useEnrollStudent = () => {
       console.log('🎉 ENROLLMENT SUCCESS:', data);
       console.log('🎉 Enrollment success, invalidating queries...');
       console.log('🎉 Class ID:', variables.classId);
-      
+
       // Invalidate and refetch enrollments to ensure UI updates
       await queryClient.invalidateQueries({ queryKey: ['enrollments', variables.classId] });
       await queryClient.refetchQueries({ queryKey: ['enrollments', variables.classId] });
-      
+
       // Also invalidate students queries
       await queryClient.invalidateQueries({ queryKey: ['students'] });
-      
+
       console.log('🎉 All queries invalidated and refetched');
-      
+
       toast({
         title: "Success",
         description: "Student enrolled successfully",

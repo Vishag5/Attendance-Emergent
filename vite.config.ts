@@ -19,10 +19,10 @@ export default defineConfig(({ mode }) => ({
     https: process.env.HTTPS === 'true' || mode === 'production' ? {
       key: undefined,
       cert: undefined,
-    } : false,
-    // Fix WebSocket connection issues
+    } : undefined,
+    // HMR configuration
     hmr: {
-      port: 8080,
+      overlay: true,
     },
   },
   build: {

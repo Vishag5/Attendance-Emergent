@@ -13,6 +13,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
@@ -27,28 +28,61 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Set up auth state listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+    let subscription: any;
+
+    // Set up auth state listener for real Supabase auth
+    const { data } = supabase.auth.onAuthStateChange(
       (event, session) => {
+        // If we have a real session, clear any demo session
+        if (session) {
+          localStorage.removeItem('demo_session');
+        }
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
       }
     );
+    subscription = data.subscription;
 
-    // THEN check for existing session
+    // Check for existing Supabase session first
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
+      if (session) {
+        // Real session exists, use it and clear demo session
+        localStorage.removeItem('demo_session');
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
+      } else {
+        // No real session, check for demo session
+        const demoSession = localStorage.getItem('demo_session');
+        if (demoSession) {
+          try {
+            const parsedSession = JSON.parse(demoSession);
+            setUser(parsedSession.user);
+            setSession(parsedSession);
+            setLoading(false);
+          } catch (e) {
+            console.error('Error parsing demo session:', e);
+            localStorage.removeItem('demo_session');
+            setLoading(false);
+          }
+        } else {
+          // No session at all
+          setLoading(false);
+        }
+      }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+    };
   }, []);
 
   const signUp = async (email: string, password: string, fullName: string) => {
     const redirectUrl = `${window.location.origin}/`;
-    
+
     const { error } = await supabase.auth.signUp({
       email,
       password,
@@ -63,29 +97,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signIn = async (email: string, password: string) => {
-    // Demo mode: allow any email/password for testing
-    if (email.includes('demo') || email.includes('test')) {
+    // Demo mode: ONLY allow specific demo emails
+    if (email === 'demo@test.com' || email === 'test@demo.com') {
       // Create a mock user for demo purposes
       const mockUser = {
-        id: 'demo-user-123',
+        id: '00000000-0000-0000-0000-000000000001', // Valid UUID for demo mode
         email: email,
         user_metadata: { full_name: 'Demo Teacher' },
         app_metadata: {},
         aud: 'authenticated',
         created_at: new Date().toISOString()
       } as User;
-      
+
       const mockSession = {
         user: mockUser,
         access_token: 'demo-token'
       } as Session;
-      
+
+      // Save demo session to localStorage for persistence
+      localStorage.setItem('demo_session', JSON.stringify(mockSession));
+
       setUser(mockUser);
       setSession(mockSession);
       return { error: null };
     }
-    
-    // Regular authentication
+
+    // Regular authentication - CLEAR any demo session first
+    localStorage.removeItem('demo_session');
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password
@@ -94,7 +132,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
+    // Clear demo session if it exists
+    localStorage.removeItem('demo_session');
     await supabase.auth.signOut();
+    // Clear state
+    setUser(null);
+    setSession(null);
   };
 
   const value = {

@@ -19,7 +19,7 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE_NAME)
       .then((cache) => {
         console.log('FaceAttend: Cache opened');
-        return cache.addAll(urlsToCache.map(url => new Request(url, {credentials: 'same-origin'})));
+        return cache.addAll(urlsToCache.map(url => new Request(url, { credentials: 'same-origin' })));
       })
       .catch((error) => {
         console.log('FaceAttend: Cache install failed:', error);
@@ -49,6 +49,21 @@ self.addEventListener('activate', (event) => {
 
 // Fetch event - serve from cache, fallback to network
 self.addEventListener('fetch', (event) => {
+  // Skip WebSocket upgrade requests (CRITICAL for Vite HMR)
+  if (event.request.headers.get('upgrade') === 'websocket') {
+    return;
+  }
+
+  // Skip Vite HMR and dev server requests
+  if (event.request.url.includes('/@vite/') ||
+    event.request.url.includes('/@fs/') ||
+    event.request.url.includes('/@id/') ||
+    event.request.url.includes('?v=') ||
+    event.request.url.includes('?t=') ||
+    event.request.url.includes('.hot-update.')) {
+    return;
+  }
+
   // Skip cross-origin requests
   if (!event.request.url.startsWith(self.location.origin)) {
     return;
@@ -91,8 +106,19 @@ self.addEventListener('fetch', (event) => {
       .catch(() => {
         // Fallback for navigation requests
         if (event.request.destination === 'document') {
-          return caches.match('/');
+          return caches.match('/').then(cachedResponse => {
+            return cachedResponse || new Response('Offline - Please check your connection', {
+              status: 503,
+              statusText: 'Service Unavailable',
+              headers: new Headers({ 'Content-Type': 'text/html' })
+            });
+          });
         }
+        // For non-document requests, return a basic error response
+        return new Response('Network error', {
+          status: 408,
+          statusText: 'Request Timeout'
+        });
       })
   );
 });
